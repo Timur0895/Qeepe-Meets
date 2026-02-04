@@ -24,6 +24,13 @@ TG_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
 # -------------------- Telegram helpers --------------------
+def _today_local_date() -> date:
+    try:
+        tz = pytz.timezone(TZ)
+    except Exception:
+        tz = pytz.timezone("Asia/Almaty")
+    return datetime.now(tz).date()
+
 def tg_request(method: str, payload: dict):
     r = requests.post(f"{TG_API}/{method}", data=payload, timeout=30)
     if r.status_code != 200:
