@@ -45,6 +45,8 @@ jobs:
           TELEGRAM_FORUM_CHAT_ID: ${{ secrets.TELEGRAM_FORUM_CHAT_ID }}
           TELEGRAM_MEETS_THREAD_ID: ${{ secrets.TELEGRAM_MEETS_THREAD_ID }}
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          GOOGLE_SHEET_URL: ${{ secrets.GOOGLE_SHEET_URL }}
+          GOOGLE_MANAGERS_SHEET: ${{ secrets.GOOGLE_MANAGERS_SHEET }}
           TZ: ${{ secrets.TZ }}
         run: |
           python scripts/run_daily.py
