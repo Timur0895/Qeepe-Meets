@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import requests
 import pytz
 
@@ -23,14 +23,31 @@ from src.config import (
 TG_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-# -------------------- Telegram helpers --------------------
-def _today_local_date() -> date:
+# -------------------- Date helpers --------------------
+def _local_tz():
     try:
-        tz = pytz.timezone(TZ)
+        return pytz.timezone(TZ)
     except Exception:
-        tz = pytz.timezone("Asia/Almaty")
+        return pytz.timezone("Asia/Almaty")
+
+
+def _base_date() -> date:
+    tz = _local_tz()
     return datetime.now(tz).date()
 
+
+def _target_date() -> date:
+    """
+    today  → по умолчанию
+    --tomorrow → завтрашняя дата
+    """
+    base = _base_date()
+    if "--tomorrow" in sys.argv:
+        return base + timedelta(days=1)
+    return base
+
+
+# -------------------- Telegram helpers --------------------
 def tg_request(method: str, payload: dict):
     r = requests.post(f"{TG_API}/{method}", data=payload, timeout=30)
     if r.status_code != 200:
@@ -57,7 +74,7 @@ def escape_html(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# -------------------- Calendar parsing helpers --------------------
+# -------------------- Calendar helpers --------------------
 def _extract_from_description(description: str, key: str) -> str:
     if not description:
         return ""
@@ -68,7 +85,7 @@ def _extract_from_description(description: str, key: str) -> str:
 
 
 def _event_time_local(event: dict) -> str:
-    tz = pytz.timezone(TZ)
+    tz = _local_tz()
     start = (event.get("start") or {})
     dt_s = start.get("dateTime")
     if not dt_s:
@@ -83,11 +100,6 @@ def _event_time_local(event: dict) -> str:
     return dt.strftime("%H:%M")
 
 
-def _today_local_date() -> date:
-    tz = pytz.timezone(TZ)
-    return datetime.now(tz).date()
-
-
 def _meeting_keyboard(event_id: str) -> dict:
     return {
         "inline_keyboard": [
@@ -100,13 +112,14 @@ def _meeting_keyboard(event_id: str) -> dict:
 
 
 # -------------------- Report builder --------------------
-def build_cards_for_today() -> list[dict]:
-    """
-    Возвращает список карточек:
-    [{ "text": "...", "event_id": "..." }, ...]
-    """
-    day = _today_local_date()
+def build_cards() -> list[dict]:
+    day = _target_date()
     date_str = day.strftime("%d.%m.%Y")
+
+    is_tomorrow = "--tomorrow" in sys.argv
+
+    header_title = "Встречи на завтра" if is_tomorrow else "Встречи на сегодня"
+    header_icon = "🌙" if is_tomorrow else "☀️"
 
     events = list_events_for_date(day)
 
@@ -120,13 +133,15 @@ def build_cards_for_today() -> list[dict]:
         ours.append(e)
 
     if not ours:
-        # одна карточка без кнопок
-        return [{"text": f"☀️ <b>Встречи на сегодня</b> — <code>{date_str}</code>\n\nНет встреч ✅", "event_id": ""}]
+        return [{
+            "text": f"{header_icon} <b>{header_title}</b> — <code>{date_str}</code>\n\nНет встреч ✅",
+            "event_id": ""
+        }]
 
     ours.sort(key=lambda ev: (ev.get("start") or {}).get("dateTime") or "")
 
     cards = []
-    header = f"☀️ <b>Встречи на сегодня</b> — <code>{date_str}</code>\n\n"
+    header = f"{header_icon} <b>{header_title}</b> — <code>{date_str}</code>\n\n"
 
     for i, e in enumerate(ours, 1):
         event_id = (e.get("id") or "").strip()
@@ -142,20 +157,20 @@ def build_cards_for_today() -> list[dict]:
         manager_username = _extract_from_description(desc, "manager_username")
         comment = _extract_from_description(desc, "comment")
 
-        # Заголовок встречи
         text = f"📌 <b>{escape_html(time_s)}</b> — {escape_html(summary)}"
+
         if manager_username:
             text += f" — <b>{escape_html(manager_username)}</b>"
 
-        # Дальше строки
         if manager_name:
             text += f"\n👤 {escape_html(manager_name)}"
+
         if comment:
             text += f"\n📝 {escape_html(comment)}"
+
         if event_id:
             text += f"\n🆔 <code>{escape_html(event_id)}</code>"
 
-        # только первая карточка получает общий хедер
         if i == 1:
             text = header + text
 
@@ -173,14 +188,14 @@ def main():
     if not TELEGRAM_MEETS_THREAD_ID:
         raise RuntimeError("Missing TELEGRAM_MEETS_THREAD_ID")
 
-    cards = build_cards_for_today()
+    cards = build_cards()
 
     for c in cards:
         event_id = c.get("event_id") or ""
         kb = _meeting_keyboard(event_id) if event_id else None
         tg_send_message(c["text"], thread_id=TELEGRAM_MEETS_THREAD_ID, reply_markup=kb)
 
-    print("OK: daily report sent (cards only)")
+    print("OK: report sent")
 
 
 if __name__ == "__main__":
